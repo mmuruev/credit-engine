@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Credit Engine</title>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+<body>
+
+<H4>Credit Engine!</H4>
+
+
+<div id="app">
+    <form @submit.prevent="sendData">
+        <label for="loanAmount">Loan Amount (2000 - 10000):</label>
+        <input type="range" id="loanAmount" v-model="loanAmount" min="2000" max="10000">
+        <input type="number" v-model.number="loanAmount">
+        <br>
+        <label for="months">Months (12 - 60):</label>
+        <input type="range" id="months" v-model="months" min="12" max="60">
+        <input type="number" v-model.number="months">
+        <br>
+        <label for="personalCode">Personal Code:</label>
+        <input type="text" id="personalCode" v-model="personalCode" required>
+
+        <button type="submit">Send</button>
+    </form>
+    <div v-if="errorMessage" style="color: red;">
+        {{ errorMessage }}
+    </div>
+    <div v-if="successMessage" style="color: green;">
+        {{ successMessage }}
+    </div>
+</div>
+
+<script>
+    const {createApp} = Vue
+    createApp({
+        data() {
+            return {
+                loanAmount: 5000,
+                months: 36,
+                personalCode: '',
+                errorMessage: '',
+                successMessage: ''
+            };
+        },
+        methods: {
+            async sendData() {
+                try {
+                    const response = await fetch('/request/acceptance', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            loanAmount: this.loanAmount,
+                            months: this.months
+                        })
+                    });
+
+                    const responseData = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(responseData.error);
+                    }
+                    this.successMessage = 'Accepted ' + responseData.approvedAmount;
+                    setTimeout(() => {
+                        this.successMessage = '';
+                    }, 5000); // Clear success message
+                } catch (error) {
+                    console.error('Error sending data:', error);
+                    this.errorMessage = error.message;
+                    setTimeout(() => {
+                        this.errorMessage = '';
+                    }, 5000); // Clear error message
+                }
+            }
+        }
+    }).mount('#app')
+</script>
+
+</body>
+</html>
