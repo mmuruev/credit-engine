@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public record DecisionResponse(
         @JsonProperty("approvedAmount")
-        int approvedAmount
+        int approvedAmount,
+        @JsonProperty("months")
+        int months
 ) {
 }

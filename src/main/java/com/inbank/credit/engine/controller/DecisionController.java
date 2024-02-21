@@ -19,19 +19,21 @@ public class DecisionController {
 
     final private DecisionService decisionService;
 
-    @PostMapping("/make/decision")
-    public DecisionResponse makeDecision(@Valid DecisionRequest request) {
-        var decisionValue = decisionService.findMaximumPossibleLoan(
+    @PostMapping("/decision/make")
+    public DecisionResponse makeDecision(@RequestBody @Valid DecisionRequest request) {
+        var decision = decisionService.findMaximumPossibleLoan(
                 request.personalCode(),
                 request.loanAmount(),
                 request.months()
         );
 
-        if (decisionValue < 0) {
+        if (decision.loanAmount() < 0) {
             throw new DeclineException("Negative decision");
         }
 
-        return new DecisionResponse(decisionValue);
+        log.info("Approved load for user {}, Loan: {}", request.personalCode(), decision);
+
+        return new DecisionResponse(decision.loanAmount(), decision.loanPeriod());
     }
 
     @ExceptionHandler(DeclineException.class)

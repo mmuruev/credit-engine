@@ -1,73 +1,102 @@
 package com.inbank.credit.engine.service;
 
-import com.inbank.credit.engine.domain.LoanRepository;
 import com.inbank.credit.engine.domain.document.LoanDocument;
+import com.inbank.credit.engine.domain.repository.LoanRepository;
+import com.inbank.credit.engine.error.DeclineException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class DecisionService {
 
-    final private LoanRepository loanRepository;
+    private final LoanRepository loanRepository;
 
-    final private static int IN_DEBT_VALUE = -1;
-    final private static int MIN_LOAN_AMOUNT = 2000;
-    final private static int MAX_LOAN_AMOUNT = 10000;
+    private final static int REJECT_DEBT_VALUE = -1;
+    private final static int MIN_LOAN_AMOUNT = 2000;
+    private final static int MAX_LOAN_AMOUNT = 10000;
 
-    final private static int MIN_LOAN_PERIOD = 12;
-    final private static int MAX_LOAN_PERIOD = 60;
+    private final static int MIN_LOAN_PERIOD = 12;
+    private final static int MAX_LOAN_PERIOD = 60;
 
-    public int findMaximumPossibleLoan(String personCode, int loanAmount, int loanPeriod) {
-        LoanDocument loanDocument = loanRepository.findByPersonalCode(personCode);
+    public Decision findMaximumPossibleLoan(String personCode, int loanAmount, int loanPeriod) {
+        LoanDocument loanDocument = loanRepository.findByPersonalCode(personCode)
+                .orElseThrow(() -> new DeclineException("No score for client")); // I suppose if person not found, no credit!!
 
-        if (loanDocument.getModifier() == IN_DEBT_VALUE) {
-            return IN_DEBT_VALUE;
+        var allowedLoanAmount = inRangeValue(loanAmount, MIN_LOAN_AMOUNT, MAX_LOAN_AMOUNT);
+        var allowedLoanPeriod = inRangeValue(loanPeriod, MIN_LOAN_PERIOD, MAX_LOAN_PERIOD);
+
+        if (loanDocument.getModifier() == REJECT_DEBT_VALUE) {
+            log.warn("User already in debt {}", personCode);
+            return Decision.ofRejected();
         }
 
         int creditModifier = loanDocument.getModifier();
 
-        var creditAmount = findMaximumApprovedAmount(creditModifier, loanAmount, loanPeriod);
-
-        if (creditAmount == IN_DEBT_VALUE) {
-            return IN_DEBT_VALUE;
-        }
-
-        return findNewPeriodAmount(creditModifier, loanPeriod);
+        return findNewPeriodAmount(creditModifier, allowedLoanAmount, allowedLoanPeriod);
     }
 
-    private int findNewPeriodAmount(int creditModifier, int loanPeriod) {
-        for (int period = loanPeriod + 1; period <= MAX_LOAN_PERIOD; period++) {
-            for (int amount = MAX_LOAN_AMOUNT; amount >= MIN_LOAN_AMOUNT; amount--) {
-                double creditScore = calculateCreditScore(creditModifier, amount, period);
+    private int inRangeValue(int actual, int min, int max) {
+        return Math.max(Math.min(actual, max), min);
+    }
 
-                if (creditScore >= 1) {
-                    return amount;
-                }
+    private Decision findNewPeriodAmount(int creditModifier, int loanAmount, int loanPeriod) {
+        // Start from request period and try to extend it for find success!
+        for (int period = loanPeriod; period <= MAX_LOAN_PERIOD; period++) {
+            var approvedAmount = findMaximumApprovedAmount(creditModifier, loanAmount, period);
+
+            if (approvedAmount != REJECT_DEBT_VALUE) {
+                return new Decision(approvedAmount, period);
             }
         }
 
-        return IN_DEBT_VALUE;
+        return Decision.ofRejected();
     }
 
+
     private int findMaximumApprovedAmount(int creditModifier, int loanAmount, int loanPeriod) {
+        // Start from max request loan amount and take score, if not decrease and take the first one witch pass
         for (int amount = loanAmount; amount >= MIN_LOAN_AMOUNT; amount--) {
-            double creditScore = calculateCreditScore(creditModifier, amount, loanPeriod);
-            if (creditScore >= 1) {
+            var creditScore = calculateCreditScore(creditModifier, amount, loanPeriod);
+
+            if (creditScore > 1.0) {
+                return findBiggestAmount(creditModifier, loanAmount, loanPeriod);
+            } else if (creditScore == 1.0) {
                 return amount;
             }
         }
 
-        return IN_DEBT_VALUE;
+        return REJECT_DEBT_VALUE;
     }
 
-    private int calculateCreditScore(int creditModifier, int loanAmount, int loanPeriod) {
+    private int findBiggestAmount(int creditModifier, int loanAmount, int loanPeriod) {
+        for (int amount = loanAmount; amount <= MAX_LOAN_AMOUNT; amount++) {
+            var creditScore = calculateCreditScore(creditModifier, amount, loanPeriod);
 
-        if (creditModifier == IN_DEBT_VALUE) {
-            return IN_DEBT_VALUE;
+            if (creditScore < 1.0) {
+                return amount - 1;
+            }
+        }
+
+        return MAX_LOAN_AMOUNT;
+    }
+
+    private float calculateCreditScore(int creditModifier, int loanAmount, int loanPeriod) {
+
+        if (creditModifier == REJECT_DEBT_VALUE) {
+            return REJECT_DEBT_VALUE;
         } else {
-            float creditScore = ((float) creditModifier / loanAmount) * loanPeriod;
-            return creditScore >= 1 ? Math.round(creditScore) : IN_DEBT_VALUE;
+            return ((float) creditModifier / loanAmount) * loanPeriod;
+
+        }
+    }
+
+
+    public record Decision(int loanAmount, int loanPeriod) {
+        static Decision ofRejected() {
+            return new Decision(REJECT_DEBT_VALUE, 0);
         }
     }
 
